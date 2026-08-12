@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.env
+*.py[cod]
+.coverage
+htmlcov/
+.postgres/
+*.egg-info/
+
+# AI Agent & Conductor configuration
+.agents/
+.claude/
+conductor/
+skills-lock.json
