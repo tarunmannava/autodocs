@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     queue_backend: str = "inline"
     redis_url: str = "redis://localhost:6379/0"
+    docs_repo_url: str = ""
+    docs_repo_branch: str = "main"
     supabase_url: str = Field(default="", validation_alias="SUPABASE_URL")
     supabase_publishable_key: str = Field(default="", validation_alias="SUPABASE_PUBLISHABLE_KEY")
     supabase_secret_key: str = Field(default="", validation_alias="SUPABASE_SECRET_KEY")
