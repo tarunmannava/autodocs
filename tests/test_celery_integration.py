@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.main import create_app
 from backend.infrastructure.queue import CeleryQueue
-from tests.test_webhook import signed, SECRET
+from backend.main import create_app
+from tests.test_webhook import SECRET, signed
 
 
 @pytest.fixture(autouse=True)

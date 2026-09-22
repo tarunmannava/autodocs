@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 
-from backend.accessors.run import InMemoryRunAccessor, SupabaseRunAccessor
+from backend.accessors.run import InMemoryRunAccessor, RunAccessor, SupabaseRunAccessor
 from backend.accessors.webhook_delivery import (
     InMemoryWebhookDeliveryAccessor,
     SupabaseWebhookDeliveryAccessor,
+    WebhookDeliveryAccessor,
 )
 from backend.config import get_settings
 from backend.controllers.github_webhook import create_router
@@ -18,6 +19,8 @@ def create_app(use_supabase: bool | None = None) -> FastAPI:
 
     queue = CeleryQueue() if settings.queue_backend == "celery" else InlineJobQueue()
     supabase = get_supabase_client() if use_supabase is not False else None
+    delivery_accessor: WebhookDeliveryAccessor
+    run_accessor: RunAccessor
     if supabase is None:
         delivery_accessor = InMemoryWebhookDeliveryAccessor()
         run_accessor = InMemoryRunAccessor()

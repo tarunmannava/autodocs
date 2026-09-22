@@ -97,17 +97,29 @@ class WebhookService:
             )
 
         try:
-            job = self._build_pull_request_job(payload, delivery_id)
+            initial_job = self._build_pull_request_job(payload, delivery_id)
         except (KeyError, TypeError, ValueError) as exc:
             raise MalformedWebhookError from exc
-        self.run_accessor.create(
+
+        run_record = self.run_accessor.create(
             RunCreate(
-                repository=job.repository,
-                pr_number=job.pr_number,
-                delivery_id=job.delivery_id,
-                head_sha=job.head_sha,
-                base_sha=job.base_sha,
+                repository=initial_job.repository,
+                pr_number=initial_job.pr_number,
+                delivery_id=initial_job.delivery_id,
+                head_sha=initial_job.head_sha,
+                base_sha=initial_job.base_sha,
             )
+        )
+        run_id_str = str(run_record.id)
+        job = PullRequestJob(
+            delivery_id=delivery_id,
+            repository=initial_job.repository,
+            pr_number=initial_job.pr_number,
+            head_sha=initial_job.head_sha,
+            base_sha=initial_job.base_sha,
+            job_id=run_id_str,
+            clone_url=initial_job.clone_url,
+            diff_text=initial_job.diff_text,
         )
         self.queue.enqueue_pull_request(job)
         return WebhookResult(
@@ -124,11 +136,14 @@ class WebhookService:
     @staticmethod
     def _build_pull_request_job(payload: dict[str, Any], delivery_id: str) -> PullRequestJob:
         pull_request = payload["pull_request"]
-        repository = payload["repository"]["full_name"]
+        repository = payload.get("repository", {})
+        repo_name = repository.get("full_name", "unknown") if isinstance(repository, dict) else str(repository)
+        clone_url = repository.get("clone_url") if isinstance(repository, dict) else None
         return PullRequestJob(
             delivery_id=delivery_id,
-            repository=repository,
+            repository=repo_name,
             pr_number=pull_request["number"],
             head_sha=pull_request["head"]["sha"],
             base_sha=pull_request["base"]["sha"],
+            clone_url=clone_url,
         )

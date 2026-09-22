@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
-
-if TYPE_CHECKING:
-    from supabase import Client
+from typing import Any, Protocol
 
 from backend.models.webhook_delivery import WebhookDeliveryCreate
 

@@ -1,9 +1,10 @@
-from __future__ import annotations
-
+import logging
 from functools import lru_cache
 from typing import Any
 
 from backend.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache
@@ -21,3 +22,4 @@ def require_supabase_client() -> Any:
     if client is None:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY are required")
     return client
+
