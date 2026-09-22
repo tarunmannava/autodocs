@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     supabase_publishable_key: str = Field(default="", validation_alias="SUPABASE_PUBLISHABLE_KEY")
     supabase_secret_key: str = Field(default="", validation_alias="SUPABASE_SECRET_KEY")
     supabase_jwks_url: str = Field(default="", validation_alias="SUPABASE_JWKS_URL")
+    openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1", validation_alias="OPENROUTER_BASE_URL")
+    openrouter_model: str = Field(default="meta/muse-spark-1.3-contributor", validation_alias="OPENROUTER_MODEL")
+    openrouter_reasoning_effort: str = Field(default="medium", validation_alias="OPENROUTER_REASONING_EFFORT")
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AUTODOCS_", extra="ignore")
 
