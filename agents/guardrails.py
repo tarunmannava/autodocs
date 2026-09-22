@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
@@ -15,6 +15,13 @@ class GuardrailResult:
     passed: bool
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "errors": self.errors,
+            "warnings": self.warnings,
+        }
 
 
 def validate_markdown_syntax(content: str) -> List[str]:

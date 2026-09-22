@@ -139,6 +139,7 @@ class WebhookService:
         repository = payload.get("repository", {})
         repo_name = repository.get("full_name", "unknown") if isinstance(repository, dict) else str(repository)
         clone_url = repository.get("clone_url") if isinstance(repository, dict) else None
+        pr_title = str(pull_request.get("title", "")) if isinstance(pull_request, dict) else ""
         return PullRequestJob(
             delivery_id=delivery_id,
             repository=repo_name,
@@ -146,4 +147,5 @@ class WebhookService:
             head_sha=pull_request["head"]["sha"],
             base_sha=pull_request["base"]["sha"],
             clone_url=clone_url,
+            pr_title=pr_title,
         )

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "AutoDocs"
     environment: str = "development"
     github_webhook_secret: str = ""
+    github_token: str = Field(default="", validation_alias="GITHUB_TOKEN")
     queue_backend: str = "inline"
     redis_url: str = "redis://localhost:6379/0"
     docs_repo_url: str = ""

@@ -123,11 +123,11 @@ class DocumentationAgent:
             state = agent_executor.invoke({"messages": [HumanMessage(content=initial_prompt)]})
             messages = state.get("messages", [])
         except Exception as exc:
-            logger.error(f"Error executing documentation agent loop: {exc}")
+            logger.error(f"Error executing documentation agent loop: {exc or exc.__class__.__name__}", exc_info=True)
             return AgentRunResult(
                 success=False,
                 summary="Agent execution failed with an unhandled exception.",
-                error_message=str(exc),
+                error_message=str(exc) or exc.__class__.__name__,
             )
 
         # Track files modified or created by the agent via tool calls

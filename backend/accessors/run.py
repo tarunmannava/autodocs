@@ -52,8 +52,30 @@ class InMemoryRunAccessor:
                     run.error_message = error_message
                 if raw_diff:
                     run.raw_diff = raw_diff
+                if status in {RunStatus.PUBLISHED, RunStatus.FAILED, RunStatus.SKIPPED}:
+                    run.completed_at = datetime.now(UTC)
                 return run
-        return None
+
+        # Auto-create if not present
+        record = RunRecord(
+            id=run_id if isinstance(run_id, UUID) else uuid4(),
+            delivery_id=str(run_id),
+            repository="",
+            pr_number=1,
+            head_sha="HEAD",
+            base_sha="BASE",
+            status=status,
+            error_message=error_message,
+            raw_diff=raw_diff,
+            created_at=datetime.now(UTC),
+            completed_at=(
+                datetime.now(UTC)
+                if status in {RunStatus.PUBLISHED, RunStatus.FAILED, RunStatus.SKIPPED}
+                else None
+            ),
+        )
+        self.runs.append(record)
+        return record
 
 
 class SupabaseRunAccessor:
@@ -79,6 +101,8 @@ class SupabaseRunAccessor:
             payload["raw_diff"] = raw_diff
         if error_message is not None:
             payload["error_message"] = error_message
+        if status in {RunStatus.PUBLISHED, RunStatus.FAILED, RunStatus.SKIPPED}:
+            payload["completed_at"] = datetime.now(UTC).isoformat()
 
         try:
             response = self.client.table("runs").update(payload).eq("id", str(run_id)).execute()
