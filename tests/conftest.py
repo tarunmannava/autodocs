@@ -11,6 +11,8 @@ def disable_external_services(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "")
     monkeypatch.setenv("SUPABASE_SECRET_KEY", "")
     monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "")
+    monkeypatch.setenv("AUTODOCS_GOOGLE_DOCS_ENABLED", "false")
+    monkeypatch.setenv("AUTODOCS_GOOGLE_DOCS_DOCUMENT_ID", "")
     
     # Clear cached settings and supabase client so test environment takes effect
     from backend.config import get_settings

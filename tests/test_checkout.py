@@ -83,3 +83,42 @@ def test_temporary_repository_checkout_multi_commit_history(tmp_path: Path):
         assert "-v1" in diff_res.stdout
         assert "+v6" in diff_res.stdout
 
+
+def test_temporary_repository_checkout_is_shallow(tmp_path: Path):
+    """Verify that cloned repositories are truly shallow (depth 1)."""
+    dummy_repo = tmp_path / "shallow_origin"
+    dummy_repo.mkdir()
+
+    subprocess.run(["git", "init"], cwd=str(dummy_repo), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(dummy_repo), check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(dummy_repo), check=True)
+
+    for i in range(5):
+        (dummy_repo / "file.txt").write_text(f"line {i}\n")
+        subprocess.run(["git", "add", "."], cwd=str(dummy_repo), check=True)
+        subprocess.run(["git", "commit", "-m", f"commit {i}"], cwd=str(dummy_repo), check=True)
+
+    with temporary_repository_checkout(clone_url=str(dummy_repo)) as repo_dir:
+        res = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=str(repo_dir),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert res.stdout.strip() == "true"
+
+
+def test_temporary_repository_checkout_token_sanitized():
+    """Verify that tokens are never exposed in CheckoutError messages."""
+    fake_token = "ghp_SECRET_TOKEN_12345"
+    with pytest.raises(CheckoutError) as exc_info:
+        with temporary_repository_checkout(
+            clone_url="https://github.com/nonexistent-org-123456/nonexistent-repo-987654.git",
+            token=fake_token,
+        ):
+            pass
+
+    assert fake_token not in str(exc_info.value)
+    assert "nonexistent-repo" in str(exc_info.value)
+

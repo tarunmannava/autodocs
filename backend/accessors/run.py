@@ -105,10 +105,22 @@ class SupabaseRunAccessor:
             payload["completed_at"] = datetime.now(UTC).isoformat()
 
         try:
-            response = self.client.table("runs").update(payload).eq("id", str(run_id)).execute()
-            if response.data:
-                return RunRecord.model_validate(response.data[0])
-            # Fallback by delivery_id if passed
+            is_valid_uuid = False
+            if isinstance(run_id, UUID):
+                is_valid_uuid = True
+            else:
+                try:
+                    UUID(str(run_id))
+                    is_valid_uuid = True
+                except ValueError:
+                    is_valid_uuid = False
+
+            if is_valid_uuid:
+                response = self.client.table("runs").update(payload).eq("id", str(run_id)).execute()
+                if response.data:
+                    return RunRecord.model_validate(response.data[0])
+
+            # Fallback by delivery_id if passed or if not a valid UUID
             response_by_delivery = self.client.table("runs").update(payload).eq("delivery_id", str(run_id)).execute()
             if response_by_delivery.data:
                 return RunRecord.model_validate(response_by_delivery.data[0])

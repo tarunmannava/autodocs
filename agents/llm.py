@@ -46,7 +46,7 @@ def get_chat_model(
         api_key=SecretStr(api_key),
         base_url=base_url,
         temperature=temperature,
-        max_completion_tokens=max_tokens,
+        max_tokens=max_tokens,
         extra_body=extra_body,
         default_headers=default_headers,
         **kwargs,

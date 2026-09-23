@@ -10,7 +10,10 @@ dependencies = [
   "pydantic-settings>=2.4",
   "unidiff>=0.7",
   "supabase>=2.15",
-  "mcp>=1.0.0",
+  "mcp>=1.0.0,<2",
+  "langchain>=0.3",
+  "langchain-core>=0.3",
+  "langchain-openai>=0.2",
 ]
 
 [project.optional-dependencies]

@@ -119,6 +119,8 @@ def open_documentation_pr(
     github_token: str = "",
     client: Optional[httpx.Client] = None,
     api_base_url: str = "https://api.github.com",
+    pr_title: Optional[str] = None,
+    pr_body: Optional[str] = None,
 ) -> Optional[str]:
     """
     Opens a Pull Request in the target documentation repository via GitHub REST API.
@@ -145,11 +147,14 @@ def open_documentation_pr(
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    effective_title = pr_title if pr_title is not None else title
+    effective_body = pr_body if pr_body is not None else body
+
     payload: Dict[str, Any] = {
-        "title": title or f"docs: update documentation for {branch_name}",
+        "title": effective_title or f"docs: update documentation for {branch_name}",
         "head": branch_name,
         "base": base_branch,
-        "body": body,
+        "body": effective_body,
     }
 
     url = f"{api_base_url.rstrip('/')}/repos/{docs_repo}/pulls"
@@ -194,13 +199,15 @@ def open_documentation_pr(
 
 
 def post_source_pr_comment(
-    source_repo: str,
-    pr_number: int,
-    comment_body: str,
+    source_repo: str = "",
+    pr_number: int = 0,
+    comment_body: str = "",
     github_token: str = "",
     client: Optional[httpx.Client] = None,
     api_base_url: str = "https://api.github.com",
+    repo_name: Optional[str] = None,
 ) -> bool:
+    effective_repo = repo_name or source_repo
     """
     Posts an informative feedback comment on the source repository's Pull Request.
 
@@ -215,7 +222,7 @@ def post_source_pr_comment(
     Returns:
         bool: True if comment was successfully posted, False otherwise.
     """
-    if not github_token or not source_repo or pr_number <= 0:
+    if not github_token or not effective_repo or pr_number <= 0:
         logger.info("GitHub token or source repo/pr_number missing; skipping PR comment.")
         return False
 
@@ -224,7 +231,7 @@ def post_source_pr_comment(
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    url = f"{api_base_url.rstrip('/')}/repos/{source_repo}/issues/{pr_number}/comments"
+    url = f"{api_base_url.rstrip('/')}/repos/{effective_repo}/issues/{pr_number}/comments"
 
     close_client = False
     if client is None:
@@ -234,16 +241,16 @@ def post_source_pr_comment(
     try:
         response = client.post(url, headers=headers, json={"body": comment_body})
         if response.status_code == 201:
-            logger.info(f"Successfully posted comment on {source_repo}#{pr_number}")
+            logger.info(f"Successfully posted comment on {effective_repo}#{pr_number}")
             return True
 
         logger.warning(
-            f"Failed to post comment on {source_repo}#{pr_number}. "
+            f"Failed to post comment on {effective_repo}#{pr_number}. "
             f"Status: {response.status_code}, Body: {response.text}"
         )
         return False
     except Exception as exc:
-        logger.error(f"Exception posting comment on {source_repo}#{pr_number}: {exc}")
+        logger.error(f"Exception posting comment on {effective_repo}#{pr_number}: {exc}")
         return False
     finally:
         if close_client:
@@ -251,12 +258,16 @@ def post_source_pr_comment(
 
 
 def format_source_pr_comment(
-    modified_files: List[str],
+    modified_files: Optional[List[str]] = None,
     docs_pr_url: Optional[str] = None,
     branch_name: Optional[str] = None,
     summary: str = "",
     run_id: Optional[str] = None,
+    agent_summary: Optional[str] = None,
+    docs_repo: Optional[str] = None,
 ) -> str:
+    effective_summary = agent_summary or summary
+    effective_files = modified_files or []
     """
     Builds a formatted Markdown comment summarizing documentation synchronizations.
 
@@ -277,12 +288,12 @@ def format_source_pr_comment(
         "",
     ]
 
-    if modified_files:
+    if effective_files:
         lines.extend([
             "| Documentation File | Status |",
             "| :--- | :--- |",
         ])
-        for f in modified_files:
+        for f in effective_files:
             lines.append(f"| `{f}` | ✏️ Updated |")
         lines.append("")
 
@@ -292,12 +303,12 @@ def format_source_pr_comment(
         lines.append(f"🌿 **Documentation Branch**: `{branch_name}`")
     lines.append("")
 
-    if summary:
+    if effective_summary:
         lines.extend([
             "<details>",
             "<summary>📋 Summary of Changes</summary>",
             "",
-            summary.strip(),
+            effective_summary.strip(),
             "</details>",
             "",
         ])

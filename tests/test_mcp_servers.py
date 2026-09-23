@@ -342,3 +342,163 @@ async def test_docs_workspace_path_traversal_protection(mock_docs_repo: Path) ->
     )
     assert res_edit["success"] is False
     assert "escapes workspace" in res_edit["error"]
+
+
+@pytest.mark.asyncio
+async def test_docs_workspace_google_docs_tools_present(mock_docs_repo: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    mock_service_instance = MagicMock()
+    mock_service_instance.get_document.return_value = {
+        "title": "Test Doc",
+        "body": {
+            "content": [
+                {
+                    "paragraph": {
+                        "elements": [{"textRun": {"content": "Hello World\n"}}]
+                    }
+                }
+            ]
+        },
+    }
+    mock_service_instance.sync_markdown_to_doc.return_value = (
+        "https://docs.google.com/document/d/test-doc-id/edit"
+    )
+
+    with patch("backend.services.google_docs.GoogleDocsService", return_value=mock_service_instance):
+        server = create_docs_workspace_server(mock_docs_repo, google_docs_id="test-doc-id")
+
+        tool_names = [t.name for t in server._tool_manager.list_tools()]
+        assert "read_google_doc" in tool_names
+        assert "edit_google_doc" in tool_names
+        assert "insert_into_google_doc" in tool_names
+        assert "update_google_doc_section" in tool_names
+        assert "update_google_doc" in tool_names
+
+        # Call read_google_doc
+        read_res = await call_mcp_tool(server, "read_google_doc", {})
+        assert read_res["status"] == "success"
+        assert read_res["document_id"] == "test-doc-id"
+        assert read_res["title"] == "Test Doc"
+        assert "Hello World" in read_res["content"]
+        mock_service_instance.get_document.assert_called_once_with("test-doc-id")
+
+        # Call edit_google_doc
+        mock_service_instance.replace_text_block.return_value = {
+            "success": True,
+            "document_id": "test-doc-id",
+            "message": "Replaced text block",
+        }
+        edit_res = await call_mcp_tool(
+            server,
+            "edit_google_doc",
+            {"target_block": "old text", "replacement_block": "new text"},
+        )
+        assert edit_res["success"] is True
+        mock_service_instance.replace_text_block.assert_called_once_with(
+            "test-doc-id", "old text", "new text"
+        )
+
+        # Call insert_into_google_doc
+        mock_service_instance.insert_at_anchor.return_value = {
+            "success": True,
+            "document_id": "test-doc-id",
+            "insert_index": 120,
+            "message": "Inserted line",
+        }
+        insert_res = await call_mcp_tool(
+            server,
+            "insert_into_google_doc",
+            {"anchor_text": "anchor line", "content": "inserted line", "position": "after"},
+        )
+        assert insert_res["success"] is True
+        mock_service_instance.insert_at_anchor.assert_called_once_with(
+            "test-doc-id", "anchor line", "inserted line", position="after"
+        )
+
+        # Call update_google_doc_section
+        mock_service_instance.patch_section.return_value = {
+            "success": True,
+            "action": "updated",
+            "message": "Patched section",
+        }
+        section_res = await call_mcp_tool(
+            server,
+            "update_google_doc_section",
+            {"heading_title": "API Endpoints", "markdown_content": "New content"},
+        )
+        assert section_res["success"] is True
+        mock_service_instance.patch_section.assert_called_once_with(
+            "test-doc-id", "API Endpoints", "New content"
+        )
+
+        # Call update_google_doc
+        update_res = await call_mcp_tool(
+            server,
+            "update_google_doc",
+            {"markdown_content": "# New Title\nContent here."},
+        )
+        assert update_res["status"] == "success"
+        assert update_res["document_id"] == "test-doc-id"
+        assert "test-doc-id" in update_res["url"]
+        mock_service_instance.sync_markdown_to_doc.assert_called_once_with(
+            "test-doc-id", "# New Title\nContent here.", clear_first=False
+        )
+
+
+@pytest.mark.asyncio
+async def test_docs_workspace_google_docs_tools_error_handling(mock_docs_repo: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    mock_service_instance = MagicMock()
+    mock_service_instance.get_document.side_effect = RuntimeError("API unavailable")
+    mock_service_instance.sync_markdown_to_doc.side_effect = RuntimeError("Sync error")
+    mock_service_instance.replace_text_block.side_effect = RuntimeError("Replace error")
+    mock_service_instance.insert_at_anchor.side_effect = RuntimeError("Insert error")
+
+    with patch("backend.services.google_docs.GoogleDocsService", return_value=mock_service_instance):
+        server = create_docs_workspace_server(mock_docs_repo, google_docs_id="test-doc-id")
+
+        read_res = await call_mcp_tool(server, "read_google_doc", {})
+        assert read_res["status"] == "error"
+        assert "API unavailable" in read_res["error"]
+
+        edit_res = await call_mcp_tool(
+            server,
+            "edit_google_doc",
+            {"target_block": "old text", "replacement_block": "new text"},
+        )
+        assert edit_res["success"] is False
+        assert "Replace error" in edit_res["error"]
+
+        insert_res = await call_mcp_tool(
+            server,
+            "insert_into_google_doc",
+            {"anchor_text": "anchor line", "content": "inserted line"},
+        )
+        assert insert_res["success"] is False
+        assert "Insert error" in insert_res["error"]
+
+        update_res = await call_mcp_tool(
+            server,
+            "update_google_doc",
+            {"markdown_content": "some text"},
+        )
+        assert update_res["status"] == "error"
+        assert "Sync error" in update_res["error"]
+
+
+@pytest.mark.asyncio
+async def test_docs_workspace_google_docs_tools_absent_when_no_id(
+    mock_docs_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("AUTODOCS_GOOGLE_DOCS_DOCUMENT_ID", raising=False)
+    server = create_docs_workspace_server(mock_docs_repo, google_docs_id=None)
+
+    tool_names = [t.name for t in server._tool_manager.list_tools()]
+    assert "read_google_doc" not in tool_names
+    assert "edit_google_doc" not in tool_names
+    assert "insert_into_google_doc" not in tool_names
+    assert "update_google_doc_section" not in tool_names
+    assert "update_google_doc" not in tool_names
+

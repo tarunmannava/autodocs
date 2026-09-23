@@ -15,13 +15,18 @@ IGNORED_DIRECTORIES = {".git", ".github", "node_modules", "venv", ".venv", "__py
 def create_docs_workspace_server(
     docs_dir: Path | str,
     server_name: str = "docs-workspace",
+    google_docs_id: Optional[str] = None,
+    google_credentials_path: Optional[str] = None,
 ) -> FastMCP:
     """
     Creates and configures a Docs Workspace FastMCP server bound to the target documentation directory.
+    Optionally provides Google Docs synchronization tools when a Google Document ID is configured.
 
     Args:
         docs_dir: Path to the root of the target documentation repository.
         server_name: MCP server name identifier.
+        google_docs_id: Optional Google Document ID for cloud documentation integration.
+        google_credentials_path: Optional path to Google credentials JSON.
 
     Returns:
         FastMCP: Configured server instance with documentation file and search tools.
@@ -206,11 +211,40 @@ def create_docs_workspace_server(
 
         match_count = norm_text.count(norm_target)
         if match_count == 0:
-            return {
-                "success": False,
-                "error": f"target_block not found in '{file_path}'. Ensure exact character and whitespace match.",
-            }
-        if match_count > 1:
+            # Fallback: whitespace-tolerant line-by-line match (ignoring trailing whitespace)
+            text_lines = norm_text.splitlines()
+            target_lines = [line.rstrip() for line in norm_target.splitlines()]
+            target_len = len(target_lines)
+
+            matching_indices: List[int] = []
+            if target_len > 0 and len(text_lines) >= target_len:
+                for i in range(len(text_lines) - target_len + 1):
+                    window = [line.rstrip() for line in text_lines[i : i + target_len]]
+                    if window == target_lines:
+                        matching_indices.append(i)
+
+            if len(matching_indices) == 1:
+                start_i = matching_indices[0]
+                replacement_lines = norm_replacement.splitlines()
+                updated_lines = text_lines[:start_i] + replacement_lines + text_lines[start_i + target_len :]
+                updated_text = "\n".join(updated_lines)
+                if norm_text.endswith("\n"):
+                    updated_text += "\n"
+            elif len(matching_indices) > 1:
+                count = len(matching_indices)
+                return {
+                    "success": False,
+                    "error": (
+                        f"target_block matched {count} sections with whitespace-tolerant matching in '{file_path}'. "
+                        "Provide more surrounding context lines to uniquely identify the section."
+                    ),
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"target_block not found in '{file_path}'. Ensure exact character and whitespace match.",
+                }
+        elif match_count > 1:
             return {
                 "success": False,
                 "error": (
@@ -218,8 +252,8 @@ def create_docs_workspace_server(
                     "Provide more surrounding context lines to uniquely identify the section."
                 ),
             }
-
-        updated_text = norm_text.replace(norm_target, norm_replacement, 1)
+        else:
+            updated_text = norm_text.replace(norm_target, norm_replacement, 1)
 
         try:
             safe_file.write_text(updated_text, encoding="utf-8")
@@ -269,5 +303,147 @@ def create_docs_workspace_server(
             "file_path": safe_file.relative_to(docs_path).as_posix(),
             "size_bytes": len(norm_content.encode("utf-8")),
         }
+
+    # Register Google Docs tools if a Google Document ID is configured or present in environment
+    effective_gdoc_id = google_docs_id or os.getenv("AUTODOCS_GOOGLE_DOCS_DOCUMENT_ID")
+    if effective_gdoc_id:
+        _cached_gdoc_service: Optional[Any] = None
+
+        def _get_service() -> Any:
+            nonlocal _cached_gdoc_service
+            if _cached_gdoc_service is None:
+                from backend.services.google_docs import GoogleDocsService
+
+                _cached_gdoc_service = GoogleDocsService(credentials_path=google_credentials_path)
+            return _cached_gdoc_service
+
+        @server.tool()
+        def read_google_doc(document_id: Optional[str] = None) -> Dict[str, Any]:
+            """
+            Reads the current plain text content and metadata of the configured Google Doc.
+
+            Args:
+                document_id: Optional document ID override (defaults to the configured Google Doc ID).
+            """
+            target_id = document_id or effective_gdoc_id
+            try:
+                service = _get_service()
+                doc = service.get_document(target_id)
+                title = doc.get("title", "")
+                elements = doc.get("body", {}).get("content", [])
+                text_parts = []
+                for elem in elements:
+                    p = elem.get("paragraph")
+                    if p:
+                        for pe in p.get("elements", []):
+                            text_parts.append(pe.get("textRun", {}).get("content", ""))
+                return {
+                    "status": "success",
+                    "document_id": target_id,
+                    "title": title,
+                    "url": f"https://docs.google.com/document/d/{target_id}/edit",
+                    "content": "".join(text_parts),
+                }
+            except Exception as exc:
+                return {"status": "error", "error": str(exc), "document_id": target_id}
+
+        @server.tool()
+        def edit_google_doc(
+            target_block: str,
+            replacement_block: str,
+            document_id: Optional[str] = None,
+        ) -> Dict[str, Any]:
+            """
+            Applies a precise replacement edit to an existing Google Doc in-place,
+            preserving surrounding content (analogous to edit_doc_file).
+            Use this when existing code functionality changes (e.g., adding filters or updating parameters)
+            to replace specific lines with the updated lines.
+
+            Args:
+                target_block: Exact text block currently in the Google Doc to be replaced.
+                replacement_block: Replacement Markdown text (can include bold, code, headings, bullets).
+                document_id: Optional document ID override (defaults to configured Google Doc).
+            """
+            target_id = document_id or effective_gdoc_id
+            try:
+                service = _get_service()
+                result = service.replace_text_block(target_id, target_block, replacement_block)
+                return result
+            except Exception as exc:
+                return {"success": False, "error": str(exc), "document_id": target_id}
+
+        @server.tool()
+        def insert_into_google_doc(
+            anchor_text: str,
+            content: str,
+            position: str = "after",
+            document_id: Optional[str] = None,
+        ) -> Dict[str, Any]:
+            """
+            Inserts new documentation lines directly before or after an anchor text line in the Google Doc in-place.
+            Preserves all surrounding text and formatting.
+
+            Args:
+                anchor_text: Exact text line in the Google Doc to anchor to (e.g. parameter or heading).
+                content: Markdown text to insert (e.g. new query filter line, bullet item, or note).
+                position: Either 'after' (insert directly below anchor) or 'before' (insert directly above anchor).
+                document_id: Optional document ID override.
+            """
+            target_id = document_id or effective_gdoc_id
+            try:
+                service = _get_service()
+                result = service.insert_at_anchor(target_id, anchor_text, content, position=position)
+                return result
+            except Exception as exc:
+                return {"success": False, "error": str(exc), "document_id": target_id}
+
+        @server.tool()
+        def update_google_doc_section(
+            heading_title: str,
+            markdown_content: str,
+            document_id: Optional[str] = None,
+        ) -> Dict[str, Any]:
+            """
+            Updates or creates a specific section under a given heading in the Google Doc (e.g. 'Tasks CRUD'),
+            leaving all other sections and headings completely intact.
+
+            Args:
+                heading_title: Title of the heading (e.g. 'API Endpoints' or 'Tasks CRUD').
+                markdown_content: Updated Markdown content for that specific section.
+                document_id: Optional document ID override.
+            """
+            target_id = document_id or effective_gdoc_id
+            try:
+                service = _get_service()
+                result = service.patch_section(target_id, heading_title, markdown_content)
+                return result
+            except Exception as exc:
+                return {"success": False, "error": str(exc), "document_id": target_id}
+
+        @server.tool()
+        def update_google_doc(
+            markdown_content: str,
+            document_id: Optional[str] = None,
+        ) -> Dict[str, Any]:
+            """
+            Translates Markdown content into native Google Docs rich text (real headings,
+            real native tables, bold text, Consolas monospace code blocks) and updates the Google Doc non-destructively.
+
+            Args:
+                markdown_content: Formatted Markdown text to synchronize into the Google Doc.
+                document_id: Optional document ID override (defaults to the configured Google Doc ID).
+            """
+            target_id = document_id or effective_gdoc_id
+            try:
+                service = _get_service()
+                doc_url = service.sync_markdown_to_doc(target_id, markdown_content, clear_first=False)
+                return {
+                    "status": "success",
+                    "document_id": target_id,
+                    "url": doc_url,
+                    "message": "Successfully synchronized rich documentation to Google Docs.",
+                }
+            except Exception as exc:
+                return {"status": "error", "error": str(exc), "document_id": target_id}
 
     return server

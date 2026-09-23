@@ -18,6 +18,7 @@ def signed(body: bytes) -> str:
 @pytest.fixture(autouse=True)
 def configure_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTODOCS_GITHUB_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("AUTODOCS_QUEUE_BACKEND", "inline")
     from backend.config import get_settings
 
     get_settings.cache_clear()

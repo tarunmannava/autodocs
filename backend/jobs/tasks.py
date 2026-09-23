@@ -106,6 +106,22 @@ def process_pr_event(
         parsed_files: List[Dict[str, Any]] = []
         raw_diff = diff_text or ""
 
+        # Early exit if PR is an automated AutoDocs branch
+        head_branch = job_payload.get("head_branch") or job_payload.get("branch") or ""
+        if head_branch.startswith("docs/sync-") or pr_title.startswith("docs: sync docs for"):
+            logger.info(f"Skipping AutoDocs documentation PR #{pr_number} ({pr_title})")
+            if run_accessor:
+                run_accessor.update_status(run_id=job_id, status=RunStatus.SKIPPED)
+            return {
+                "status": "skipped",
+                "job_id": job_id,
+                "repository": repository,
+                "pr_number": pr_number,
+                "reason": "automated_documentation_pr",
+                "modified_files": [],
+                "files_changed_count": 0,
+            }
+
         # Early exit if neither diff nor clone_url nor source_dir provided
         if not diff_text and not clone_url and not source_dir_path:
             if run_accessor:
@@ -144,6 +160,17 @@ def process_pr_event(
                     )
                     if diff_res.returncode == 0 and diff_res.stdout.strip():
                         raw_diff = diff_res.stdout
+                    else:
+                        # Fallback to direct two-tree diff if merge-base is missing in shallow history
+                        fallback_diff = subprocess.run(
+                            ["git", "diff", base_sha, commit_sha],
+                            cwd=str(source_dir),
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        if fallback_diff.returncode == 0 and fallback_diff.stdout.strip():
+                            raw_diff = fallback_diff.stdout
 
                 if not raw_diff:
                     diff_res = subprocess.run(
@@ -169,6 +196,32 @@ def process_pr_event(
             if raw_diff:
                 parsed = parse_unified_diff(raw_diff, filter_ignored=True)
                 parsed_files = [f.to_dict() for f in parsed]
+
+            # Early exit if only documentation files were modified in the PR
+            if (clone_url or source_dir_path) and parsed_files:
+                doc_extensions = {".md", ".mdx", ".rst", ".txt"}
+                only_docs = all(
+                    any((f.get("path") or f.get("new_path") or "").lower().endswith(ext) for ext in doc_extensions)
+                    or (f.get("path") or f.get("new_path") or "").lower().startswith("docs/")
+                    for f in parsed_files
+                )
+                if only_docs:
+                    logger.info(
+                        f"AutoDocs run {job_id}: PR #{pr_number} modifies only documentation files. Skipping agent execution."
+                    )
+                    if run_accessor:
+                        run_accessor.update_status(
+                            run_id=job_id, status=RunStatus.SKIPPED, parsed_diff=parsed_files, raw_diff=raw_diff
+                        )
+                    return {
+                        "status": "skipped",
+                        "job_id": job_id,
+                        "repository": repository,
+                        "pr_number": pr_number,
+                        "reason": "only_documentation_files_changed",
+                        "modified_files": [],
+                        "files_changed_count": len(parsed_files),
+                    }
 
             if run_accessor:
                 run_accessor.update_status(
@@ -206,7 +259,14 @@ def process_pr_event(
                     run_accessor.update_status(run_id=job_id, status=RunStatus.RUNNING_AGENTS)
 
                 code_server = create_code_intel_server(source_dir, raw_diff=raw_diff)
-                docs_server = create_docs_workspace_server(docs_dir)
+                google_doc_id = (
+                    settings.google_docs_document_id if settings.google_docs_enabled else None
+                )
+                docs_server = create_docs_workspace_server(
+                    docs_dir=docs_dir,
+                    google_docs_id=google_doc_id,
+                    google_credentials_path=settings.google_credentials_path,
+                )
 
                 agent_runner = agent
                 if agent_runner is None:
@@ -307,6 +367,24 @@ def process_pr_event(
                         github_token=settings.github_token,
                     )
 
+                google_doc_url: Optional[str] = None
+                if settings.google_docs_enabled and settings.google_docs_document_id:
+                    try:
+                        from backend.services.google_docs import GoogleDocsService
+                        target_file = Path(docs_dir) / (
+                            agent_result.modified_files[0] if agent_result.modified_files else "README.md"
+                        )
+                        gdocs = GoogleDocsService(credentials_path=settings.google_credentials_path)
+                        if target_file.exists():
+                            google_doc_url = gdocs.sync_markdown_to_doc(
+                                document_id=settings.google_docs_document_id,
+                                markdown_text=target_file.read_text(encoding="utf-8"),
+                                clear_first=False,
+                            )
+                            logger.info(f"Updated Google Doc: {google_doc_url}")
+                    except Exception as gdoc_err:
+                        logger.warning(f"Google Docs sync failed: {gdoc_err}")
+
                 if run_accessor:
                     run_accessor.update_status(run_id=job_id, status=RunStatus.PUBLISHED)
 
@@ -320,6 +398,7 @@ def process_pr_event(
                     "commit_sha": commit_sha,
                     "branch_name": branch_name,
                     "docs_pr_url": docs_pr_url,
+                    "google_doc_url": google_doc_url,
                 }
     except Exception as exc:
         logger.error(f"Error executing process_pr_event job {job_id}: {exc}")

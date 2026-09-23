@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1", validation_alias="OPENROUTER_BASE_URL")
     openrouter_model: str = Field(default="meta/muse-spark-1.3-contributor", validation_alias="OPENROUTER_MODEL")
     openrouter_reasoning_effort: str = Field(default="medium", validation_alias="OPENROUTER_REASONING_EFFORT")
+    google_docs_enabled: bool = False
+    google_docs_document_id: str = "1LKH8WNZdtN0guJcozk3Vo2VKX7LDcNacq4ENEfN2bew"
+    google_credentials_path: str = "google_credentials.json"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="AUTODOCS_", extra="ignore")
 

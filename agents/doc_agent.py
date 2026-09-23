@@ -34,6 +34,11 @@ You have access to two sets of tools:
    - read_doc_file: Read existing documentation pages to inspect context.
    - edit_doc_file: Apply precise replacements to update documentation.
    - create_doc_file: Create new documentation pages when new features are added.
+   - read_google_doc: Inspect current content and sections in the linked live Google Doc (when available).
+   - edit_google_doc: Replace specific lines or blocks in the live Google Doc in-place, preserving surrounding content.
+   - insert_into_google_doc: Insert new documentation lines (e.g. newly added query filters or parameters) directly between existing lines before or after an anchor text in the Google Doc.
+   - update_google_doc_section: Update or append a specific section under a heading in the Google Doc without touching other sections.
+   - update_google_doc: Synchronize Markdown documentation non-destructively into the Google Doc.
 
 WORKFLOW:
 1. First, call `get_diff_summary` and `get_impacted_symbols` to thoroughly understand what changed in the code.
@@ -41,8 +46,11 @@ WORKFLOW:
    in the documentation repository.
 3. Read the candidate documentation pages using `read_doc_file`.
 4. If documentation updates are needed, use `edit_doc_file` (with exact context lines) or `create_doc_file`.
-5. If the changes are internal-only or do not affect any documentation, do NOT edit docs unnecessarily.
-6. Conclude with a clear, concise summary of the documentation changes made and the rationale.
+5. If Google Docs tools are available:
+   - Read existing document content with `read_google_doc`.
+   - When existing code functionality changes (e.g. adding filters, new parameters, or modifying fields), use `edit_google_doc` to replace the exact target lines or `insert_into_google_doc` to insert the new lines between existing lines in-place. Never wipe or clear the document.
+6. If the changes are internal-only or do not affect any documentation, do NOT edit docs unnecessarily.
+7. Conclude with a clear, concise summary of the documentation changes made and the rationale.
 """
 
 
@@ -68,9 +76,11 @@ class DocumentationAgent:
         self,
         model: Optional[BaseChatModel] = None,
         system_prompt: Optional[str] = None,
+        max_iterations: int = 15,
     ) -> None:
         self.model = model or get_chat_model()
         self.system_prompt = system_prompt or DOCUMENTATION_AGENT_SYSTEM_PROMPT
+        self.max_iterations = max_iterations
 
     def run(
         self,
@@ -81,6 +91,7 @@ class DocumentationAgent:
         pr_number: int = 1,
         pr_title: str = "",
         pr_description: str = "",
+        max_iterations: Optional[int] = None,
     ) -> AgentRunResult:
         """
         Executes the autonomous documentation agent loop across the source and docs repositories.
@@ -93,11 +104,13 @@ class DocumentationAgent:
             pr_number: Pull request number.
             pr_title: Pull request title.
             pr_description: Pull request description body.
+            max_iterations: Optional step limit override (defaults to self.max_iterations).
 
         Returns:
             AgentRunResult: Final outcome containing modified files, summary, and guardrail validation.
         """
         docs_root = Path(docs_dir).resolve()
+        limit = max_iterations or self.max_iterations
 
         tools = get_mcp_langchain_tools(
             code_intel_server=code_intel_server,
@@ -120,14 +133,22 @@ class DocumentationAgent:
         )
 
         try:
-            state = agent_executor.invoke({"messages": [HumanMessage(content=initial_prompt)]})
+            # Enforce recursion_limit to prevent runaway execution and token depletion
+            state = agent_executor.invoke(
+                {"messages": [HumanMessage(content=initial_prompt)]},
+                config={"recursion_limit": limit * 2},
+            )
             messages = state.get("messages", [])
         except Exception as exc:
-            logger.error(f"Error executing documentation agent loop: {exc or exc.__class__.__name__}", exc_info=True)
+            err_name = exc.__class__.__name__
+            logger.error(f"Error executing documentation agent loop: {exc or err_name}", exc_info=True)
+            err_msg = str(exc) or err_name
+            if "recursion" in err_name.lower() or "recursion" in err_msg.lower():
+                err_msg = f"Agent reached maximum execution steps limit ({limit}) without completing."
             return AgentRunResult(
                 success=False,
                 summary="Agent execution failed with an unhandled exception.",
-                error_message=str(exc) or exc.__class__.__name__,
+                error_message=err_msg,
             )
 
         # Track files modified or created by the agent via tool calls
