@@ -464,25 +464,28 @@ class GoogleDocsService:
             insert_idx = at_index
 
         total_inserted = 0
-        curr_idx = insert_idx
+        curr_idx = at_index
 
         # Group sections into contiguous text blocks vs tables
         idx = 0
         while idx < len(sections):
             sec = sections[idx]
+            target_idx = curr_idx if at_index is not None else None
             if sec.get("type") == "text_block":
                 text_group: List[Dict[str, Any]] = []
                 while idx < len(sections) and sections[idx].get("type") == "text_block":
                     text_group.append(sections[idx])
                     idx += 1
-                inserted = self._insert_text_blocks_batched(document_id, text_group, at_index=curr_idx)
-                curr_idx += inserted
+                inserted = self._insert_text_blocks_batched(document_id, text_group, at_index=target_idx)
+                if curr_idx is not None:
+                    curr_idx += inserted
                 total_inserted += inserted
             elif sec.get("type") == "table":
                 inserted = self._insert_table(
-                    document_id, sec.get("headers", []), sec.get("rows", []), at_index=curr_idx
+                    document_id, sec.get("headers", []), sec.get("rows", []), at_index=target_idx
                 )
-                curr_idx += inserted
+                if curr_idx is not None:
+                    curr_idx += inserted
                 total_inserted += inserted
                 idx += 1
             else:
@@ -688,8 +691,11 @@ class GoogleDocsService:
         if style_reqs:
             service.documents().batchUpdate(documentId=document_id, body={"requests": style_reqs}).execute()
 
-        initial_span = table_elem.get("endIndex", insert_idx) - table_elem.get("startIndex", insert_idx)
-        return initial_span + total_text_len
+        final_doc = self.get_document(document_id)
+        for elem in final_doc.get("body", {}).get("content", []):
+            if "table" in elem and elem.get("startIndex", 0) >= insert_idx:
+                return elem.get("endIndex", insert_idx) - insert_idx
+        return total_text_len
 
 
 def clean_markdown_inline(text: str) -> str:
