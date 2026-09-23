@@ -86,6 +86,23 @@ AutoDocs combines **deterministic static diff parsing** with **asynchronous task
 ### 🧩 Unified Diff Parsing
 - Parses raw git diff payloads into structured modification objects using `unidiff`.
 
+### 🧠 AST Change Graph & Symbol Analysis
+- Analyzes Python Abstract Syntax Trees (AST) to detect altered function signatures, parameters, docstrings, and class hierarchies.
+- Computes caller/callee dependencies so the agent understands downstream impacts without manual prompt guidance.
+
+### 🔌 Model Context Protocol (MCP) Integration
+- Exposes standardized tool servers (`code_intel_server` and `docs_workspace_server`) using FastMCP.
+- Enables autonomous agents to query symbols, inspect git diff chunks, and apply surgical whitespace-tolerant line replacements without hallucinated rewrites.
+
+### 🤖 Autonomous Documentation Agent
+- ReAct agent loop powered by OpenRouter models with strict recursion limits and validation guardrails.
+- Autonomously discovers changed contracts and applies scoped documentation edits to markdown files.
+
+### 🚀 Multi-Repo Git Publisher & Google Docs Rich Sync
+- Automates git branching (`docs/sync-...`), committing, pushing to the target documentation repo, and opening GitHub Pull Requests.
+- Posts real-time status feedback comments directly onto the developer's source pull request.
+- Translates Markdown into native Google Docs rich text (headings, real tables, bullets, and Consolas monospace code blocks) with batched API updates.
+
 ---
 
 ## System Architecture
